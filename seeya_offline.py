@@ -587,7 +587,7 @@ class SeeyaDashboard(QMainWindow):
                 <li class="cmd-item">
                     <span class="cmd-word">"Explain..."</span> — Ask Seeya anything
                 <br><br><br><br><br><pre>Contact: seeya.ai.help@gmail.com</pre>
-                <p>© 2026 Seeya AI ∙ ALL RIGHTS RESERVED </p>
+                <p>Seeya AI ∙ © 2026 ALL RIGHTS RESERVED </p>
                 </li>               
             </ul>            
         </div>
