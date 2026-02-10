@@ -216,23 +216,17 @@ def ask_gemini(text):
     if not is_ai_ready:
         return "My AI brain is not set up correctly. Please install Ollama."
     
-    # 1. Add System Prompt ONLY if memory is empty (First time)
     if len(convo_history) == 0:
         convo_history.append({
             'role': 'system', 
             'content': 'You are Seeya AI. You are helpful, friendly, and concise.'
         })
-
-    # 2. Add User Message to Memory
     convo_history.append({'role': 'user', 'content': text})
 
     try:
-        # 3. Pass the WHOLE HISTORY to Ollama (Not just current msg)
         response = ollama.chat(model='gemma2:2b', messages=convo_history)
         
         reply = response['message']['content']
-        
-        # 4. Add Seeya's Reply to Memory
         convo_history.append({'role': 'assistant', 'content': reply})
         
         return reply
@@ -241,7 +235,7 @@ def ask_gemini(text):
         print(f"Error: {e}")
         return "I am facing a brain freeze. Please check connection."
 
-# Reset Function
+#reset function
 def reset_memory():
     global convo_history
     convo_history = []
@@ -532,4 +526,5 @@ def loop(gui_signals=None):
             print(f"Loop Error: {e}")
 
 if __name__ == "__main__":
+
     loop()
