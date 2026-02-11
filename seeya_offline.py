@@ -1,9 +1,15 @@
+import datetime
 import sys
 import os
 import psutil
 import threading
 import ctypes
 import re
+import webbrowser
+import pyautogui
+import time
+import pywhatkit
+import subprocess
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                              QHBoxLayout, QLabel, QPushButton, QScrollArea, 
                              QProgressBar, QFrame, QGraphicsDropShadowEffect, 
@@ -11,6 +17,7 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QSizeGrip, QSystemTrayIcon, QMenu, QAction, QSlider)
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QSize, QEvent
 from PyQt5.QtGui import QColor, QFont, QIcon, QCursor
+from PyQt5.QtCore import pyqtSignal, QObject
 
 #backend
 import assistant_offline as logic
@@ -31,6 +38,50 @@ os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
 if hasattr(Qt, 'AA_EnableHighDpiScaling'):
     QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
 
+def execute_smart_command(reply):
+    try:
+        match = re.search(r"\[(\w+):\s*(.*?)\]", reply, re.IGNORECASE)
+
+        if match:
+            cmd_type = match.group(1).upper() 
+            arg = match.group(2).strip()        
+            print(f"ACTION DETECTED: {cmd_type} -> {arg}")
+
+            if cmd_type == "PLAY":
+                try:
+                    logic.speak(f"Playing {arg} on YouTube")
+                    pywhatkit.playonyt(arg)
+                    return True
+                except Exception as e:
+                    print(f"PyWhatKit Error: {e}")
+                    webbrowser.open(f"https://www.youtube.com/results?search_query={arg}")
+                    return True
+            
+            elif cmd_type == "OPEN":
+                pyautogui.press("win")
+                time.sleep(0.5)
+                pyautogui.write(arg)
+                time.sleep(1)
+                pyautogui.press("enter")
+                return True
+            
+            elif cmd_type == "SEARCH":
+                webbrowser.open(f"https://www.google.com/search?q={arg}")
+                return True
+            
+            elif cmd_type == "CLOSE":
+                logic.close_app_logic(arg)
+                return True
+
+            elif cmd_type == "TIME":
+                t = datetime.datetime.now().strftime("%I:%M %p")
+                logic.speak(f"It is {t}")
+                return True
+
+    except Exception as e:
+        print(f"ACTION ERROR: {e}")
+    
+    return False
 
 class SeeyaThread(QThread):
     chat_signal = pyqtSignal(str, str)
@@ -45,40 +96,66 @@ class SeeyaThread(QThread):
 
     def run(self):
         self.msleep(1000)
+        
         if not self.greeted:
             self.chat_signal.emit("Seeya", "Seeya Online.")
             try: logic.speak("Seeya Online")
             except: pass
             self.greeted = True
 
+        print("🟢")
+
         while self.is_running:
-            try: speaking_state = logic.is_speaking
-            except: speaking_state = False
+            try: 
+                speaking_state = logic.is_speaking
+            except: 
+                speaking_state = False
             self.glow_signal.emit(speaking_state)
 
             if self.is_mic_muted or speaking_state:
                 self.msleep(100); continue
             
-            text = logic.listen()           
+            try:
+                text = logic.listen() 
+            except: text = ""
+
             if text:
+                print(f"User: {text}")
                 self.chat_signal.emit("You", text)
-                self.process_command(text)
-            self.msleep(50) 
+
+                ai_reply = logic.ask_brain(text)
+                print(f"Seeya: {ai_reply}")
+
+                if execute_smart_command(ai_reply):
+                    self.chat_signal.emit("Seeya", f"Executed: {ai_reply}")
+                    self.speak(f"Executed: {ai_reply}")
+                else:
+                    self.chat_signal.emit("Seeya", ai_reply)
+                    logic.speak(ai_reply)
+
+            self.msleep(50)
 
     def process_command(self, text):
         self.chat_signal.emit("Thinking", "Thinking...")
         self.status_signal.emit("Processing...")
+        
         command = text.lower()
         pc_reply = logic.system_commands(command)
         if pc_reply:
             self.chat_signal.emit("Seeya", pc_reply)
             logic.speak(pc_reply)
         else:
-            ai_reply = logic.ask_gemini(text)
-            self.chat_signal.emit("Seeya", ai_reply)
-            logic.speak(ai_reply)
-        self.status_signal.emit("Active")
+            ai_reply = logic.ask_brain(text)
 
+            if execute_smart_command(ai_reply):
+                 self.chat_signal.emit("Seeya", f"Executed: {ai_reply}")
+                 self.speak(f"Executed: {ai_reply}")
+            else:
+                 self.chat_signal.emit("Seeya", ai_reply)
+                 logic.speak(ai_reply)
+                 
+        self.status_signal.emit("Active")
+        
 #main
 class SeeyaDashboard(QMainWindow):
     def __init__(self):
@@ -95,11 +172,12 @@ class SeeyaDashboard(QMainWindow):
         self.is_stealth_mode = False
         self.active_btn = None 
         self.voice_enabled = True
-
+        
         self.init_ui()
         self.init_tray()
         self.init_logic()
         self.apply_theme()
+           
 
     def init_ui(self):
         self.pages = QStackedWidget()
@@ -133,7 +211,7 @@ class SeeyaDashboard(QMainWindow):
             btn.setFixedSize(12, 12)
             btn.setStyleSheet(f"background-color: {col}; border-radius: 6px; border: none;")
         
-        self.btn_close.clicked.connect(self.hide_to_tray) # Changed to custom hide function
+        self.btn_close.clicked.connect(self.hide_to_tray) 
         self.btn_min.clicked.connect(self.showMinimized)
         self.btn_max.clicked.connect(self.toggle_maximize)
         
@@ -151,7 +229,7 @@ class SeeyaDashboard(QMainWindow):
         self.side_layout.addSpacing(10)
 
         self.btn_chat = self.create_nav_btn("💬 Chat", 0, True)
-        self.btn_cmds = self.create_nav_btn("⚡ Commands", 1, False)
+        self.btn_cmds = self.create_nav_btn("⚡ Capabilities", 1, False)
         
         self.side_layout.addStretch()
 
@@ -196,7 +274,7 @@ class SeeyaDashboard(QMainWindow):
         self.side_layout.addSpacing(5)
 
         self.lbl_cpu = QLabel("CPU Usage")
-        self.lbl_cpu.setStyleSheet("font-size: 10px; font-weight: bold; color: #238271;")
+        self.lbl_cpu.setStyleSheet("font-size: 8px; font-weight: bold; color: #238271;")
         self.side_layout.addWidget(self.lbl_cpu)
         
         self.cpu_bar = QProgressBar()
@@ -445,15 +523,16 @@ class SeeyaDashboard(QMainWindow):
         self.refresh_bubbles()
 
     def update_commands_html(self, text_color, card_bg, border_color):
+        # Clean, Minimalist Colors
         if self.is_dark_mode:
             text_main = "#FFFFFF"
-            text_dim = "#AAAAAA"
-            accent = "#269F73" # Soft Blue
+            text_dim = "#B0B0B0"
+            accent = "#1A8F6E" # Soft Blue
             divider = "1px solid #333"
         else:
             text_main = "#222222"
-            text_dim = "#666666"
-            accent = "#269F73"
+            text_dim = "#555555"
+            accent = "#1A8F6E" # Soft Blue
             divider = "1px solid #EEE"
 
         html_content = f"""
@@ -462,7 +541,7 @@ class SeeyaDashboard(QMainWindow):
                 font-family: 'Segoe UI', sans-serif; 
                 margin: 20px; 
                 background: transparent; 
-                line-height: 1.6;
+                line-height: 1.5;
             }}
             
             /* Main Title */
@@ -470,126 +549,100 @@ class SeeyaDashboard(QMainWindow):
                 color: {text_main}; 
                 font-size: 16px; 
                 font-weight: 700; 
-                margin-bottom: 25px; 
+                margin-bottom: 20px; 
                 text-transform: uppercase; 
                 letter-spacing: 1px;
                 border-bottom: {divider};
                 padding-bottom: 10px;
             }}
 
-            /* Categories */
-            .category {{
-                margin-bottom: 25px;
-            }}
-            
-            .cat-title {{
-                color: {accent};
-                font-size: 10px;
-                font-weight: 800;
-                text-transform: uppercase;
-                letter-spacing: 1.5px;
-                margin-bottom: 8px;
-            }}
-
-            /* Command List */
-            .cmd-list {{
-                margin: 0;
-                padding: 0;
-                list-style: none;
-            }}
-            
-            .cmd-item {{
-                margin-bottom: 6px;
-                font-size: 11px;
-                color: {text_dim};
+            /* List Layout */
+            .cmd-row {{
+                margin-bottom: 14px;
                 display: flex;
                 align-items: baseline;
             }}
 
-            /* The Command Keyword */
-            .cmd-word {{
+            /* Category Label (Left) */
+            .cat {{
+                width: 110px;
+                min-width: 110px;
+                color: {accent};
+                font-size: 11px;
+                font-weight: 800;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+            }}
+
+            /* Description (Right) */
+            .desc {{
+                color: {text_dim};
+                font-size: 12px;
+                font-weight: 500;
+            }}
+
+            /* Highlight keywords */
+            .hl {{
                 color: {text_main};
                 font-weight: 600;
-                margin-right: 8px;
-                white-space: nowrap;
             }}
-            
-            .separator {{
-                margin: 0 6px;
-                opacity: 0.3;
-            }}
-
         </style>
         
-        <h2>Commands</h2>
+        <h2>Command References</h2>
         
-        <div class="category">
-            <div class="cat-title">System</div>
-            <ul class="cmd-list">
-                <li class="cmd-item">
-                    <span class="cmd-word">"Stealth Mode On"</span> — Hide Taskbar/Recorder
-                </li>
-                <li class="cmd-item">
-                    <span class="cmd-word">"Opacity Control"</span> — Adjust Opacity of Seeya
-                </li>
-                <li class="cmd-item">
-                    <span class="cmd-word">"Shutdown PC"</span> / <span class="cmd-word">"Restart"</span>
-                </li>
-                <li class="cmd-item">
-                    <span class="cmd-word">"Lock Screen"</span> / <span class="cmd-word">"Sleep"</span>
-                </li>
-                <li class="cmd-item">
-                    <span class="cmd-word">"Mute"</span> / <span class="cmd-word">"Unmute"</span> — Volume
-                </li><br>
-                
-            </ul>
+        <div class="cmd-row">
+            <div class="cat">❔ ASK SEEYA</div>
+            <div class="desc">Ask Questions, Get Answers from Seeya.</div>
         </div>
-
-        <div class="category">
-            <div class="cat-title">Apps</div>
-            <ul class="cmd-list">
-                <li class="cmd-item">
-                    <span class="cmd-word">"Open [App Name]"</span> — e.g. "Open Spotify"
-                </li>
-                <li class="cmd-item">
-                    <span class="cmd-word">"Close [App Name]"</span> — e.g. "Close Chrome"
-                </li>
-                <li class="cmd-item">
-                    <span class="cmd-word">"Take/Delete Screenshot"</span>
-                </li>
-            </ul>
+        <br>
+        <div class="cmd-row">
+            <div class="cat">👁 VISION</div>
+            <div class="desc">
+                <div class="desc">It can Read Screen, Find Button. Just say "Click on [Button/Screen Text]"</div>
+            </div>
         </div>
-
-        <div class="category">
-            <div class="cat-title">Hands-Free</div>
-            <ul class="cmd-list">
-                <li class="cmd-item">
-                    <span class="cmd-word">"Click"</span> / <span class="cmd-word">"Right Click"</span>
-                </li>
-                <li class="cmd-item">
-                    <span class="cmd-word">"Scroll Up"</span> / <span class="cmd-word">"Scroll Down"</span>
-                </li>
-                <li class="cmd-item">
-                    <span class="cmd-word">"Type [text]"</span> — Types for you
-                </li>
-            </ul>
+        <br>
+        <div class="cmd-row">
+            <div class="cat">🔴 POWER/PRIVACY</div>
+            <div class="desc">
+                <div class="desc">Stealth Mode for You, Opacity Control of Seeya, "Shutdown", "Restart", "Lock PC"</div>
+            </div>
         </div>
-
-        <div class="category">
-            <div class="cat-title">AI Vision</div>
-            <ul class="cmd-list">
-                <li class="cmd-item">
-                    <span class="cmd-word">"Read Screen"</span> — Reads text aloud
-                </li>
-                <li class="cmd-item">
-                    <span class="cmd-word">"Find [Button]"</span> — Moves mouse to target
-                </li>
-                <li class="cmd-item">
-                    <span class="cmd-word">"Explain..."</span> — Ask Seeya anything
-                <br><br><br><br><br><pre>Contact: seeya.ai.help@gmail.com</pre>
-                <p>Seeya AI ∙ © 2026 ALL RIGHTS RESERVED </p>
-                </li>               
-            </ul>            
+        <br>
+        <div class="cmd-row">
+            <div class="cat">🟦 WINDOWS</div>
+            <div class="desc">"Minimize All", "Show Desktop", "Alt Tab"</div>
+        </div>
+        <br>
+        <div class="cmd-row">
+            <div class="cat">🚀 APPS</div>
+            <div class="desc">"Open [App Name]", "Close [App Name]", "Open Task Manager", "Open Settings"</div>
+        </div>
+        <br>
+        <div class="cmd-row">
+            <div class="cat">🛠 TOOLS</div>
+            <div class="desc">"Battery", "Take Screenshot", "Delete Screenshot", "Type [Text]", Control Key Functions of Keyboard/Mouse</div>
+        </div>
+        <br>
+        <div class="cmd-row">
+            <div class="cat">🎵 MEDIA</div>
+            <div class="desc">"Play [Song]", "Mute", "Unmute", "Volume Up", "Volume Down"</div>
+        </div>
+        <br>
+        <div class="cmd-row">
+            <div class="cat">📂 FILES</div>
+            <div class="desc">"Open C Drive", "Open Downloads"</div>
+        </div>
+        <br>
+        <div class="cmd-row">
+            <div class="cat">🌐 WEB</div>
+            <div class="desc">"Search [Query]", "Open YouTube", "Open Google"</div>
+        </div>
+        <br>
+        <div class="cmd-row">
+            <div class="cat">📅 MISC</div>
+            <div class="desc">"Date", "Time", "Tell me a Joke" and many more...</div><br><br>
+            <br><br><pre>For Information/Support: seeya.ai.help@gmail.com</pre><p>© 2026 Seeya AI. All rights reserved.</p>
         </div>
         """
         self.page_cmd.setHtml(html_content)
