@@ -605,10 +605,10 @@ def loop(gui_signals=None):
             if execute_smart_command(ai_reply): 
                 if gui_signals:
                     gui_signals.update_chat.emit("Seeya", f"Executed: {ai_reply}")
-                    speak(f"Executed: {ai_reply}")
+                    #speak(f"Executed: {ai_reply}")
                 else:
                     print(f"Executed: {ai_reply}")
-                    speak(f"Executed: {ai_reply}")
+                    #speak(f"Executed: {ai_reply}")
                     
 
             else:
