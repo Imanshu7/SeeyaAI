@@ -149,7 +149,7 @@ class SeeyaThread(QThread):
 
             if execute_smart_command(ai_reply):
                  self.chat_signal.emit("Seeya", f"Executed: {ai_reply}")
-                 self.speak(f"Executed: {ai_reply}")
+                 #self.speak(f"Executed: {ai_reply}")
             else:
                  self.chat_signal.emit("Seeya", ai_reply)
                  logic.speak(ai_reply)
